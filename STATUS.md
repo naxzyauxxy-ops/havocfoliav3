@@ -35,6 +35,44 @@ git add havocfolia-server/minecraft-patches/sources
 line numbers, is idempotent (re-running is a no-op), and names the exact anchor when one is
 missing. Run it with `--check` first to see what it would do.
 
+
+## If you extracted this zip over an existing checkout
+
+Unzipping adds and overwrites files. It never **deletes** files that are no longer in the archive.
+So the five hand-written `.patch` files are still in your repo even though they are not in the
+zip — which is why the same `Invalid patch line ... at 3:'@@'` error came back.
+
+Clean the tree properly:
+
+```bash
+cd your-repo
+git ls-files -z | xargs -0 rm -f            # drop every tracked file from disk
+unzip -o ~/Downloads/HavocFolia.zip -d /tmp/hf
+cp -a /tmp/hf/HavocFolia/. .                # repopulate from the archive
+git add -A
+git status                                  # deletions should be listed here
+git commit -m "Rebuild from template"
+git push
+```
+
+Nothing is lost — git history keeps everything. `git status` before committing shows exactly what
+went away; you should see the five `minecraft-patches/sources/*.patch` files and the old
+`src/main/java/gg/**` tree deleted.
+
+Stale paths to expect from earlier zips:
+
+```
+havocfolia-server/minecraft-patches/sources/**
+havocfolia-server/src/main/java/gg/**
+havocfolia-api/src/main/java/gg/**
+havocfolia-server/src/test/java/gg/**
+patches/**
+```
+
+`scripts/validate-patches.py` now runs in CI before anything expensive, so a stale patch fails the
+build in about five seconds with a message naming the file — rather than two minutes in, pointing
+at the symptom.
+
 ## The fork code is staged, not deleted
 
 `fork-code/` holds all the feature code, off the compile path on purpose. It was written against
