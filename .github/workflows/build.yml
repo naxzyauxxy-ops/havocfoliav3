@@ -16,107 +16,8 @@ permissions:
   contents: write
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # Read the build requirements out of the pinned upstream instead of hardcoding
-  # them here. Canvas changes its Gradle version, Java toolchain and Minecraft
-  # version on its own schedule; anything hardcoded in this file drifts and then
-  # fails with an error that has nothing to do with the real cause.
-  # ---------------------------------------------------------------------------
-  preflight:
-    name: Preflight
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      gradle_version: ${{ steps.probe.outputs.gradle_version }}
-      java_version: ${{ steps.probe.outputs.java_version }}
-      mc_version: ${{ steps.probe.outputs.mc_version }}
-      canvas_ref: ${{ steps.probe.outputs.canvas_ref }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Resolve upstream pin
-        id: pin
-        run: |
-          REF=$(grep -E '^canvasRef' gradle.properties | cut -d= -f2 | tr -d ' ')
-          BRANCH=$(grep -E '^canvasBranch' gradle.properties | cut -d= -f2 | tr -d ' ')
-          BRANCH="${BRANCH:-main}"
-          if [ -z "$REF" ] || [ "$REF" = "0000000000000000000000000000000000000000" ]; then
-            echo "::error title=Upstream not pinned::canvasRef in gradle.properties is still the placeholder."
-            echo "Latest commit on ${BRANCH}:"
-            git ls-remote https://github.com/CraftCanvasMC/Canvas.git "refs/heads/${BRANCH}" || true
-            echo "::error::Copy that SHA into gradle.properties as canvasRef, then push again."
-            exit 1
-          fi
-          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
-
-      - name: Probe upstream layout
-        id: probe
-        run: |
-          set -euo pipefail
-          REF="${{ steps.pin.outputs.ref }}"
-
-          # Blobless clone: we only need a few metadata files, not Canvas's history.
-          git clone --filter=blob:none --no-checkout \
-            https://github.com/CraftCanvasMC/Canvas.git /tmp/canvas
-          cd /tmp/canvas
-          if ! git fetch --depth 1 origin "$REF" 2>/dev/null; then
-            echo "::error title=Bad canvasRef::Commit $REF does not exist on CraftCanvasMC/Canvas."
-            exit 1
-          fi
-          git checkout --quiet FETCH_HEAD
-
-          GRADLE_VERSION=$(grep -oE 'gradle-[0-9]+\.[0-9]+(\.[0-9]+)?-' gradle/wrapper/gradle-wrapper.properties \
-            | head -1 | sed 's/gradle-//;s/-$//')
-          JAVA_VERSION=$(grep -oE 'JavaLanguageVersion\.of\([0-9]+\)' build.gradle.kts \
-            | head -1 | grep -oE '[0-9]+')
-          MC_VERSION=$(grep -E '^mcVersion' gradle.properties | cut -d= -f2 | tr -d ' ')
-
-          : "${GRADLE_VERSION:?could not read Gradle version from upstream wrapper}"
-          : "${JAVA_VERSION:?could not read Java toolchain from upstream build.gradle.kts}"
-          : "${MC_VERSION:?could not read mcVersion from upstream gradle.properties}"
-
-          echo "gradle_version=${GRADLE_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "java_version=${JAVA_VERSION}"     >> "$GITHUB_OUTPUT"
-          echo "mc_version=${MC_VERSION}"         >> "$GITHUB_OUTPUT"
-          echo "canvas_ref=${REF}"                >> "$GITHUB_OUTPUT"
-
-          {
-            echo "### Upstream at \`${REF:0:8}\`"
-            echo ""
-            echo "| Setting | Value |"
-            echo "| --- | --- |"
-            echo "| Gradle | ${GRADLE_VERSION} |"
-            echo "| Java toolchain | ${JAVA_VERSION} |"
-            echo "| Minecraft | ${MC_VERSION} |"
-          } >> "$GITHUB_STEP_SUMMARY"
-
-          # Verify the paths our paperweight block references actually exist at
-          # this commit. A rename upstream would otherwise surface 20 minutes
-          # later as an unrelated-looking patch failure.
-          echo "Upstream top level:"
-          ls -1
-          FAILED=0
-          for path in canvas-server canvas-api canvas-server/minecraft-patches; do
-            if [ ! -e "$path" ]; then
-              echo "::error title=Upstream layout changed::Expected '$path' at $REF but it is missing."
-              FAILED=1
-            fi
-          done
-          exit $FAILED
-
-      - name: Compare against our gradle.properties
-        run: |
-          OURS=$(grep -E '^mcVersion' gradle.properties | cut -d= -f2 | tr -d ' ')
-          THEIRS="${{ steps.probe.outputs.mc_version }}"
-          if [ "$OURS" != "$THEIRS" ]; then
-            echo "::warning title=mcVersion mismatch::Ours is '$OURS', upstream at this commit is '$THEIRS'. The build uses upstream's; update gradle.properties to match."
-          fi
-
   build:
     name: Build jar
-    needs: preflight
     runs-on: ubuntu-latest
     timeout-minutes: 120
     outputs:
@@ -125,27 +26,27 @@ jobs:
 
     env:
       # paperweight decompiles and remaps Minecraft; it needs the headroom.
-      GRADLE_OPTS: "-Xmx5G -Dorg.gradle.daemon=false"
+      GRADLE_OPTS: "-Xmx5G"
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           # The patcher replays upstream history; a shallow clone breaks it.
           fetch-depth: 0
 
-      - name: Set up JDK ${{ needs.preflight.outputs.java_version }}
-        uses: actions/setup-java@v4
+      # Java 25 and Gradle 9.6.1 are what Canvas and the Baguette template use.
+      # Both come from the committed wrapper and this JDK — nothing is provisioned
+      # ad hoc, so there is no version to drift.
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
         with:
-          distribution: temurin
-          java-version: ${{ needs.preflight.outputs.java_version }}
+          java-version: 25
+          distribution: zulu
 
-      - name: Set up Gradle ${{ needs.preflight.outputs.gradle_version }}
-        uses: gradle/actions/setup-gradle@v4
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
         with:
-          # Provisions `gradle` on PATH. weaver publishes for the Gradle 9 plugin
-          # API, so the runner's preinstalled Gradle 8.x cannot resolve it.
-          gradle-version: ${{ needs.preflight.outputs.gradle_version }}
           cache-read-only: ${{ github.event_name == 'pull_request' }}
 
       - name: Cache paperweight work
@@ -156,9 +57,8 @@ jobs:
           path: |
             ~/.gradle/caches/paperweight
             .gradle/caches/paperweight
-          key: paperweight-${{ needs.preflight.outputs.canvas_ref }}
-          restore-keys: |
-            paperweight-
+          key: paperweight-${{ hashFiles('gradle.properties') }}
+          restore-keys: paperweight-
 
       - name: Configure git
         # The patcher drives git directly and refuses to run without an identity.
@@ -168,74 +68,22 @@ jobs:
           git config --global init.defaultBranch main
           git config --global commit.gpgsign false
 
-      - name: Sync wrapper to upstream Gradle
-        # Keeps ./gradlew usable locally without pinning the version in two places.
-        run: |
-          mkdir -p gradle/wrapper
-          cat > gradle/wrapper/gradle-wrapper.properties <<EOF
-          distributionBase=GRADLE_USER_HOME
-          distributionPath=wrapper/dists
-          distributionUrl=https\\://services.gradle.org/distributions/gradle-${{ needs.preflight.outputs.gradle_version }}-bin.zip
-          networkTimeout=10000
-          validateDistributionUrl=true
-          zipStoreBase=GRADLE_USER_HOME
-          zipStorePath=wrapper/dists
-          EOF
-
       - name: Apply patches
         # Clones Canvas -> Folia -> Paper, decompiles and remaps Minecraft, then
         # applies every patch layer. Nearly all the build time is here.
-        run: gradle applyAllPatches --stacktrace
+        run: ./gradlew applyAllPatches --stacktrace
 
-      - name: Bootstrap generated build files
-        # On the first run there is no build.gradle.kts.patch yet, so the patcher
-        # copies upstream's file verbatim — and it still refers to upstream's
-        # module names (canvas-api / canvasServer), which do not exist here.
-        # Rewrite them, then commit the .patch this produces so later runs are
-        # a no-op. Idempotent: once the patch exists there is nothing to rename.
-        run: |
-          set -euo pipefail
-          CHANGED=0
-          for f in havocfolia-server/build.gradle.kts havocfolia-api/build.gradle.kts; do
-            [ -f "$f" ] || continue
-            cp "$f" "$f.orig"
-            sed -i \
-              -e 's/canvas-server/havocfolia-server/g' \
-              -e 's/canvas-api/havocfolia-api/g' \
-              -e 's/canvasServer/havocfoliaServer/g' \
-              -e 's/canvasApi/havocfoliaApi/g' \
-              "$f"
-            if ! cmp -s "$f" "$f.orig"; then
-              echo "Renamed upstream module references in $f"
-              diff -u "$f.orig" "$f" || true
-              CHANGED=1
-            fi
-            rm -f "$f.orig"
-          done
-          if [ "$CHANGED" = "1" ]; then
-            echo "::notice title=Bootstrap applied::Run 'gradle rebuildCanvasSingleFilePatches' locally and commit the generated .patch files so this step becomes a no-op."
-          fi
-
-      - name: Upload generated build files
-        # These are what you need in order to write the .patch files. Grab them
-        # from the run artifacts on a first build.
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: generated-build-files
-          path: |
-            havocfolia-server/build.gradle.kts
-            havocfolia-api/build.gradle.kts
-          retention-days: 7
-          if-no-files-found: ignore
+      - name: Compile
+        # Fails fast on a Java error before spending time assembling a jar.
+        run: ./gradlew compileJava --stacktrace
 
       - name: Build paperclip jar
-        run: gradle :havocfolia-server:createPaperclipJar --stacktrace
+        run: ./gradlew createPaperclipJar --stacktrace
 
       - name: Collect metadata
         id: meta
         run: |
-          MC="${{ needs.preflight.outputs.mc_version }}"
+          MC=$(grep -E '^mcVersion' gradle.properties | cut -d= -f2 | tr -d ' ')
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             VERSION="${GITHUB_REF_NAME#v}"
           else
@@ -270,8 +118,8 @@ jobs:
           if-no-files-found: error
 
       - name: Save patch rejects on failure
-        # When a source patch fails, the .rej files name the exact hunk. Far more
-        # useful for fixing it than the Gradle stack trace.
+        # When a patch does not apply, the .rej files name the exact failing hunk.
+        # Far more useful for fixing it than the Gradle stack trace.
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -284,16 +132,16 @@ jobs:
 
   smoke-test:
     name: Boot test
-    needs: [preflight, build]
+    needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:
-      - name: Set up JDK ${{ needs.preflight.outputs.java_version }}
-        uses: actions/setup-java@v4
+      - name: Set up JDK 25
+        uses: actions/setup-java@v5
         with:
-          distribution: temurin
-          java-version: ${{ needs.preflight.outputs.java_version }}
+          java-version: 25
+          distribution: zulu
 
       - name: Download jar
         uses: actions/download-artifact@v4
@@ -338,7 +186,7 @@ jobs:
           grep -q 'Done (' server.log || {
             echo "::error title=Never reached Done::"; tail -100 server.log; exit 1; }
           grep -qi 'HavocFolia' server.log || {
-            echo "::error title=Fork not loaded::Branding missing, so the bootstrap hook did not apply."; exit 1; }
+            echo "::error title=Fork not loaded::Branding missing, so the hooks did not apply."; exit 1; }
           echo "Boot OK."
 
       - name: Upload server log
