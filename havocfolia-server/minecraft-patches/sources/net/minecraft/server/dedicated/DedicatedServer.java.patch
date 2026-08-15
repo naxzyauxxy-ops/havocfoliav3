@@ -1,0 +1,8 @@
+--- a/net/minecraft/server/dedicated/DedicatedServer.java
++++ b/net/minecraft/server/dedicated/DedicatedServer.java
+@@
+     public boolean initServer() throws IOException {
++        // HavocFolia start - fork bootstrap
++        gg.havoc.folia.HavocFolia.bootstrap(this.getServerDirectory());
++        // HavocFolia end
+         Thread thread = new Thread("Server console handler") {

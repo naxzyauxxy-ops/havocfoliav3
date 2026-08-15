@@ -1,0 +1,120 @@
+# ===========================================================================
+#  HavocFolia
+#  High performance dedicated server software based on CanvasMC and Folia.
+#
+#  Every value here is hot-reloadable with /havoc reload except the two noted
+#  as restart-only. Defaults are the conservative ones — the aggressive
+#  numbers are in the comments so you can opt in deliberately.
+# ===========================================================================
+
+anti-freecam:
+  # Hides block data a legitimate client could never have seen. Unlike anti-xray
+  # this replaces the blocks outright, so a freecam client flying through terrain
+  # sees filler rather than your bases and ore veins.
+  enabled: true
+
+  # Blocks of real terrain kept behind the nearest opening.
+  #   4  - aggressive, smallest packets, occasional pop-in when tunnelling fast
+  #   6  - default, no visible artefacts in normal play
+  #   10 - conservative, use if you run mods that render through walls
+  max-depth: 6
+
+  # Nothing at or above this Y is ever touched. Everything above ground is
+  # visible anyway, so this is the single biggest cost saver: with the default,
+  # roughly two thirds of a 384-tall world's sections are skipped outright.
+  surface-y: 63
+
+  # Chunks further than this (in chunks) from the viewer skip neighbour-aware
+  # edge handling. Does not disable hiding — only the cross-chunk seam pass.
+  max-chunk-distance: 12
+
+  # Players with this permission receive the real world.
+  bypass-permission: "havocfolia.antifreecam.bypass"
+
+  # When a player breaks through into a cavity, resend the surrounding chunks so
+  # newly reachable blocks arrive. Turning this off saves packets but leaves
+  # holes looking solid until the chunk is reloaded.
+  update-on-block-change: true
+  update-radius: 2
+
+  # Replacement block per dimension. Must be a full solid cube.
+  preset-blocks:
+    minecraft:overworld: "minecraft:stone"
+    minecraft:the_nether: "minecraft:netherrack"
+    minecraft:the_end: "minecraft:end_stone"
+
+  # Never obfuscated, even when buried.
+  ignored-blocks:
+    - "minecraft:barrier"
+    - "minecraft:bedrock"
+
+scheduler:
+  # PARALLEL  - upstream Folia behaviour, the OS schedules region workers freely
+  # AFFINITY  - pin each region worker to a fixed CPU (Linux only, see docs/TUNING.md)
+  mode: "PARALLEL"
+
+  # 0 = auto (available processors minus reserved-cores). RESTART REQUIRED.
+  worker-threads: 0
+
+  # Logical CPUs held back for GC, Netty and the OS. Do not set this to 0 on a
+  # box that also runs a database or a proxy.
+  reserved-cores: 2
+
+  # SPREAD     - one worker per physical core, skipping SMT siblings (recommended)
+  # COMPACT    - fill every logical CPU in order
+  # SMT_PAIRED - two workers per physical core
+  # ISOLATED   - use exactly cpu-set and nothing else
+  pin-strategy: "SPREAD"
+
+  # Explicit CPU list, e.g. "4-15" or "2,4,6,8". Overrides pin-strategy when set.
+  # Pair this with kernel isolcpus for the flattest tick times.
+  cpu-set: ""
+
+  elevate-priority: false
+  log-pin-map: true
+
+view-distance:
+  # High view distance is affordable; high SIMULATION distance is not. Set
+  # simulation-distance to 6-10 in server.properties and leave this high.
+  max-view-distance: 32          # RESTART REQUIRED
+  min-view-distance: 6
+
+  # Shrink a player's view distance when their region's tick time climbs, and
+  # grow it back when the region recovers. The gap between the two thresholds is
+  # hysteresis — narrowing it makes clients thrash chunk loads.
+  adaptive: true
+  shrink-above-mspt: 45.0
+  grow-below-mspt: 25.0
+  adjust-interval-ticks: 100
+
+  # Chunks sent per player per tick while catching up after a join or teleport.
+  max-chunk-send-rate: 12
+
+optimizations:
+  # Serialise chunk sections straight from the palette instead of resolving
+  # every block state first.
+  fast-chunk-serialization: true
+
+  # Cache the "does this state block vision" table across chunks. Costs a few
+  # hundred KB, saves a registry lookup per block.
+  cache-block-state-palettes: true
+
+  # Skip packet work for sections that are entirely air.
+  skip-empty-section-packets: true
+
+  # Build entity tracker sets lazily rather than eagerly each tick.
+  lazy-entity-tracker: true
+
+  # Back off mob spawn attempts in regions that keep failing them. Slightly
+  # changes spawn timing under heavy load; disable if you run spawn-rate-
+  # sensitive farms.
+  throttle-failed-spawn-attempts: true
+
+  # Hoppers that found nothing wait this many ticks before searching again.
+  # 8 is invisible in normal play; above ~16 players notice slow item sorters.
+  defer-hopper-searches: true
+  hopper-cooldown-ticks: 8
+
+commands:
+  enabled: true
+  permission-prefix: "havocfolia.command"

@@ -1,0 +1,17 @@
+--- a/net/minecraft/server/level/ServerPlayer.java
++++ b/net/minecraft/server/level/ServerPlayer.java
+@@
+     public void tick() {
++        // HavocFolia start - adaptive view distance driven by this region's tick time
++        {
++            int desired = gg.havoc.folia.view.AdaptiveViewDistance.evaluate(
++                this.getUUID(),
++                gg.havoc.folia.view.RegionMspt.current(),
++                this.serverLevel().getGameTime());
++            if (desired > 0) {
++                this.serverLevel().getChunkSource().chunkMap
++                    .setPlayerViewDistance(this, desired);
++            }
++        }
++        // HavocFolia end
+         super.tick();

@@ -1,0 +1,13 @@
+--- a/net/minecraft/server/level/ServerLevel.java
++++ b/net/minecraft/server/level/ServerLevel.java
+@@
+-        this.chunkPacketBlockController = this.paperConfig().anticheat.antiXray.enabled
+-            ? new ChunkPacketBlockControllerAntiXray(this, executor)
+-            : ChunkPacketBlockController.NO_OPERATION_INSTANCE;
++        // HavocFolia start - native AntiFreecam replaces the anti-xray controller
++        this.chunkPacketBlockController = gg.havoc.folia.config.HavocConfig.get().antiFreecam.enabled
++            ? gg.havoc.folia.HavocFolia.createController(this)
++            : (this.paperConfig().anticheat.antiXray.enabled
++                ? new ChunkPacketBlockControllerAntiXray(this, executor)
++                : ChunkPacketBlockController.NO_OPERATION_INSTANCE);
++        // HavocFolia end

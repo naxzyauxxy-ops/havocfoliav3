@@ -1,0 +1,9 @@
+--- a/io/papermc/paper/threadedregions/TickRegionScheduler.java
++++ b/io/papermc/paper/threadedregions/TickRegionScheduler.java
+@@
+     public void init() {
+         this.threadPool.start();
++        // HavocFolia start - pin region workers once their threads exist
++        gg.havoc.folia.HavocFolia.onSchedulerStart();
++        // HavocFolia end
+     }

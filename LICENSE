@@ -1,0 +1,33 @@
+HavocFolia
+Copyright (C) 2026 Havoc
+
+Based on CanvasMC, Folia, Paper, CraftBukkit and Bukkit.
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program. If not, see <https://www.gnu.org/licenses/>.
+
+-------------------------------------------------------------------------------
+
+  THE FULL GPL-3.0 TEXT IS NOT INCLUDED IN THIS FILE.
+
+  Paper, Folia and CanvasMC are GPL-3.0. Distributing a build of this fork
+  without the complete licence text is a licence violation. Run:
+
+      ./scripts/setup.sh
+
+  or fetch it directly:
+
+      curl -o LICENSE https://www.gnu.org/licenses/gpl-3.0.txt
+
+  and keep your patches and sources public.
+
+-------------------------------------------------------------------------------
