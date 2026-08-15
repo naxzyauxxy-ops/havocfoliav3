@@ -1,26 +1,23 @@
+import org.gradle.api.tasks.testing.logging.TestExceptionFormat
+import org.gradle.api.tasks.testing.logging.TestLogEvent
+
 plugins {
     java
-    // NOT io.papermc.paperweight.patcher. Canvas is built with its own paperweight
-    // fork ("weaver"), and only weaver defines the `upstreams.canvas { }` helper.
-    id("io.canvasmc.weaver.patcher") version "2.4.5"
+    id("io.canvasmc.weaver.patcher") version "2.4.5" // always keep in check with canvas's actual used release
 }
 
 val paperMavenPublicUrl = "https://repo.papermc.io/repository/maven-public/"
 val canvasMavenPublicUrl = "https://maven.canvasmc.io/public/"
 
 paperweight {
-    // Canvas sets gitFilePatches/filterPatches this way; match upstream unless you
-    // have a reason not to, or `rebuildPatches` will churn every patch file.
-    filterPatches = false
-    gitFilePatches = false
-
+    // This controls the patch filtering setting
+    // It controls whether empty patches should be deleted automatically or kept
+    // the default value is true but it can sometimes break git's 3way apply in rare cases, so it's left configurable
+    // NOTE: this option is duplicated in the server build file, so make sure to set it to what you like too. What you set here doesn't get respected there automatically.
+    filterPatches = true
     upstreams.canvas {
-        // `repo` is set by convention to github.com/CraftCanvasMC/Canvas.
-        // There is NO `branch` property — pin an exact commit via `ref`.
-        ref = providers.gradleProperty("canvasRef")
+        ref = providers.gradleProperty("canvasCommit")
 
-        // Single-file patches: `path` (upstream) -> `outputFile` (generated locally),
-        // with the diff stored in `patchFile`. There is NO `patchesDir` here.
         patchFile {
             path = "canvas-server/build.gradle.kts"
             outputFile = file("havocfolia-server/build.gradle.kts")
@@ -31,24 +28,31 @@ paperweight {
             outputFile = file("havocfolia-api/build.gradle.kts")
             patchFile = file("havocfolia-api/build.gradle.kts.patch")
         }
-
-        // Directory patch sets are where `patchesDir` actually lives.
-        // Leave the patches dir empty and this is a pass-through.
-        patchDir("paperApi") {
+        patchRepo("paperApi") {
             upstreamPath = "paper-api"
-            excludes = setOf("build.gradle.kts")
             patchesDir = file("havocfolia-api/paper-patches")
+            // Thanks to weaver, you can also use ATs for all sources, not just the minecraft one.
+            // By default, when weaver is looking for an AT file for a patch source set, it looks under the `build-data` dir for an AT file under the name of the patch set.
+            // For this patchRepo, it would look for paperApi.at because 'paperApi` is the name of the source set, as declared in the `patchRepo("paperApi")` field.
+            // If you want to override either the location of build-data dir or the at file itself you can do so by modifying the `buildDataDir` and/or `additionalAts` fields.
+            // An important behavior change compared to paperweight in regards to the minecraft AT file is the added possibility to specify ats for libraries instead of having to patch them manually.
             outputDir = file("paper-api")
+        }
+        patchDir("canvasApi") {
+            upstreamPath = "canvas-api"
+            excludes = listOf("build.gradle.kts", "build.gradle.kts.patch", "paper-patches")
+            patchesDir = file("havocfolia-api/canvas-patches")
+            outputDir = file("canvas-api")
         }
     }
 }
 
 subprojects {
     apply(plugin = "java-library")
+    apply(plugin = "maven-publish")
 
     extensions.configure<JavaPluginExtension> {
         toolchain {
-            // Canvas is on Java 25. Do not drop this to 21 — upstream source will not compile.
             languageVersion = JavaLanguageVersion.of(25)
         }
     }
@@ -63,5 +67,19 @@ subprojects {
         options.encoding = Charsets.UTF_8.name()
         options.release = 25
         options.isFork = true
+        options.compilerArgs.addAll(listOf("-Xlint:-deprecation", "-Xlint:-removal"))
+    }
+    tasks.withType<Javadoc>().configureEach {
+        options.encoding = Charsets.UTF_8.name()
+    }
+    tasks.withType<ProcessResources>().configureEach {
+        filteringCharset = Charsets.UTF_8.name()
+    }
+    tasks.withType<Test>().configureEach {
+        testLogging {
+            showStackTraces = true
+            exceptionFormat = TestExceptionFormat.FULL
+            events(TestLogEvent.STANDARD_OUT)
+        }
     }
 }

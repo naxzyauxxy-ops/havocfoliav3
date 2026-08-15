@@ -5,119 +5,81 @@ threading fixes and native AntiFreecam.
 
 ---
 
-## Read this first
+## What this is
 
-**This is a fork source repository, not a prebuilt `server.jar`.** A Folia fork cannot ship as one
-compiled jar: the patcher decompiles and remaps Minecraft, replays Canvas -> Folia -> Paper patch
+A fork source repository, not a prebuilt `server.jar`. A Folia fork cannot ship as one compiled
+jar — the patcher decompiles and remaps Minecraft, replays the Canvas → Folia → Paper patch
 stacks, then applies yours. Push this to GitHub and `.github/workflows/build.yml` produces
-`havocfolia-<version>.jar`, or run the two Gradle tasks locally.
+`havocfolia-<version>.jar`, or run two Gradle tasks locally.
 
-**Read [STATUS.md](STATUS.md) before you start.** It states plainly what has been verified by
-running it, what was verified by reading upstream source, what has not been verified at all, and
-the one bootstrap step that needs your hands on it.
-
-Upstream is **CanvasMC** (which chains through Folia to Paper). Canvas main currently targets
-Minecraft 26.2 on Java 25 with Gradle 9.6.1 — the CI reads all three out of the pinned upstream
-commit rather than hardcoding them, so it cannot drift.
-
-## Features
-
-### Region threading
-Built on Folia-style region threading with upstream stability and performance patches from
-CanvasMC. Each region ticks independently on its own thread; nothing in this fork adds
-cross-region synchronisation, and the diagnostics (`/havoc regions`) read only atomically
-published state so they can never deadlock the thing you are trying to diagnose.
-
-### Affinity scheduler
-Optional `AFFINITY` region scheduler with CPU pinning. Folia's region workers are long-lived
-threads with hot working sets; when the OS migrates one between cores its cache goes cold and the
-next tick pays for it. That shows up as p99 tick variance rather than a worse average — which is
-what players actually feel. Four strategies (`SPREAD`, `COMPACT`, `SMT_PAIRED`, `ISOLATED`), CPU
-reservation for GC and Netty, and no JNI. See [docs/TUNING.md](docs/TUNING.md).
-
-### Native AntiFreecam
-Hides deep block data from freecam clients. Runs natively inside the chunk-packet pipeline — no
-PacketEvents, no ProtocolLib, no extra packet copy. Anti-xray does not stop freecam (engine-mode 1
-just swaps ore ids; the user looks at them from inside the wall). AntiFreecam instead replaces
-anything more than `max-depth` blocks behind the nearest opening, so hidden terrain is not
-obfuscated — it is not sent. See [docs/ANTIFREECAM.md](docs/ANTIFREECAM.md).
-
-### Large view distance
-Supports high view distance including 32 chunks **when simulation distance stays modest**. That
-caveat is the whole feature: sending chunks costs bandwidth and serialisation, ticking them costs
-region-thread time, and only the second one is dangerous. Adaptive view distance shrinks a
-player's radius when *their own region* is over budget and grows it back when it recovers, with
-hysteresis so clients do not thrash chunk loads.
-
-### Dense server optimizations
-Palette-direct chunk serialisation, cached occlusion tables, empty-section skipping, lazy entity
-tracking, spawn-attempt backoff and hopper search deferral. Every one is a toggle with its
-trade-off written next to it in `havocfolia.yml`, because "optimizations" that silently change
-game behaviour are how forks get a bad reputation.
+**This repo is generated from [CraftCanvasMC/Baguette](https://github.com/CraftCanvasMC/Baguette),
+the official template for maintaining a Canvas fork**, with HavocFolia's code and patches added.
+That matters: the build wiring — the `forks.register` block, the access-transformer files, the
+module-rename patches, the committed Gradle wrapper — is upstream's own, not hand-derived. Read
+[STATUS.md](STATUS.md) for what is verified and what still needs your hands.
 
 ---
 
 ## Building
 
-### Via GitHub Actions (recommended)
-
-1. Push this repository to GitHub.
-2. Set `upstreamCommit` in `gradle.properties` to a real CanvasMC commit:
-   ```bash
-   git ls-remote https://github.com/CraftCanvasMC/Canvas.git main
-   ```
-   The workflow **fails fast** if you leave the placeholder in place.
-3. Push, or run the workflow manually from the Actions tab.
-4. Download `havocfolia-<version>.jar` from the run's artifacts. Tag with `v1.2.3` to cut a
-   GitHub Release instead.
-
-The pipeline builds the jar, then boots it on a flat world, waits for `Done`, runs
-`havoc version`, and fails if the fork branding never appears — so a build that compiles but does
-not actually load the fork is caught in CI rather than on your server.
-
-### Locally
-
 ```bash
-./scripts/setup.sh                        # checks Java, fetches LICENSE, makes the wrapper
-./gradlew applyAllPatches                 # 20-40 min the first time
-./gradlew createMojmapPaperclipJar
+./gradlew applyAllPatches      # clones upstreams, decompiles + remaps MC, applies patches
+./gradlew createPaperclipJar   # produces the runnable jar
 ```
 
-Requires JDK 21+, ~10 GB free disk, and 6 GB of RAM for Gradle.
+Requires **JDK 25**, ~10 GB free disk, and 6 GB of RAM for Gradle. The wrapper pins Gradle 9.6.1.
+First run takes 20–40 minutes; later runs hit the paperweight cache.
+
+CI does the same on every push. Tag with `v1.2.3` to cut a GitHub Release.
+
+`.github/workflows/upstream.yml` (inherited from the template) opens automated upstream bumps every
+three days. It needs `BOT_TOKEN` and `PUSH_TOKEN` secrets — delete the file if you don't want it.
 
 ---
 
-## Wiring the hooks
+## Features
 
-Five one-line hooks connect the fork to upstream. They live in
-`havocfolia-server/minecraft-patches/features/` and are written against Paper/Folia
-1.21.x layouts.
+### Region threading
+Folia-style region threading with CanvasMC's stability and performance patches on top. Nothing in
+this fork adds cross-region synchronisation, and the diagnostics read only atomically published
+state, so `/havoc regions` can never deadlock the region you are trying to diagnose.
 
-**Upstream moves these methods regularly, so treat them as templates, not gospel.**
-[docs/HOOKS.md](docs/HOOKS.md) gives the exact anchor for each one and what to do when a patch
-fails to apply. Everything else — all the actual logic — lives in
-`havocfolia-server/src/main/java/gg/havoc/folia/` as ordinary source files that need no patch at
-all, which is why re-anchoring after an upstream bump is a ten-minute job rather than a rebase
-from hell.
+### Affinity scheduler
+Optional `AFFINITY` region scheduler with CPU pinning. Folia's region workers are long-lived
+threads with hot working sets; when the OS migrates one between cores its cache goes cold and the
+next tick pays for it. That shows up as p99 tick variance rather than a worse average — which is
+what players actually feel. Four strategies, CPU reservation for GC and Netty, no JNI. See
+[docs/TUNING.md](docs/TUNING.md).
+
+### Native AntiFreecam
+Hides deep block data from freecam clients, inside the chunk-packet pipeline — no PacketEvents, no
+ProtocolLib, no extra packet copy. Anti-xray does not stop freecam: engine-mode 1 just swaps ore
+ids and the user looks at them from inside the wall. AntiFreecam instead replaces anything more
+than `max-depth` blocks behind the nearest opening, so hidden terrain is not disguised — it is
+never sent. See [docs/ANTIFREECAM.md](docs/ANTIFREECAM.md).
+
+### Large view distance
+View distance 32 **when simulation distance stays modest** — that caveat is the feature. Sending
+chunks costs bandwidth and serialisation; *ticking* them costs region-thread time, and only the
+second is dangerous. Adaptive view distance shrinks a player's radius when their own region is over
+budget and grows it back when it recovers, with hysteresis so clients don't thrash chunk loads.
+
+### Dense server optimizations
+Palette-direct chunk serialisation, cached occlusion tables, empty-section skipping, lazy entity
+tracking, spawn-attempt backoff, hopper search deferral. Every one is a toggle with its trade-off
+written next to it in `havocfolia.yml`.
 
 ---
 
 ## Running
 
 ```bash
-JAR=havocfolia-1.21.8-42.jar MEMORY=8G ./scripts/start.sh
+JAR=havocfolia-26.2-42.jar MEMORY=8G ./scripts/start.sh
 ```
 
-`scripts/start.sh` uses generational ZGC rather than the classic G1 "Aikar's flags". Those flags
-tune G1 region sizes and trade pause time for throughput on a *single* tick thread; under Folia
-you have many mutator threads and pause time is what hurts. Do not copy G1 flags onto this.
-
-Then, in `server.properties`:
-
-```properties
-view-distance=32
-simulation-distance=6
-```
+Uses generational ZGC, not the classic G1 "Aikar's flags". Those tune G1 for a *single* tick thread
+and trade pause time for throughput; Folia has many mutator threads and pause time is what hurts.
+Then set `view-distance=32` and `simulation-distance=6` in `server.properties`.
 
 ---
 
@@ -126,7 +88,7 @@ simulation-distance=6
 | Command | Description |
 | --- | --- |
 | `/havoc version` | Build, upstream, scheduler mode, AntiFreecam state |
-| `/havoc reload` | Reload `havocfolia.yml` (config only) |
+| `/havoc reload` | Reload `havocfolia.yml` |
 | `/havoc tps` | Region tick summary — worst and median MSPT |
 | `/havoc regions` | Busiest regions with chunk and player counts |
 | `/havoc affinity [reapply]` | Show or re-apply the thread→CPU pin map |
@@ -136,8 +98,22 @@ Aliased to `/hf`. Requires `havocfolia.command.admin` or op level 3.
 
 ---
 
+## Layout
+
+| Path | What |
+| --- | --- |
+| `havocfolia-server/src/main/java/gg/havoc/folia/` | Fork code — plain sources, no patch needed |
+| `havocfolia-server/minecraft-patches/sources/` | One-line hooks into NMS classes |
+| `havocfolia-server/build.gradle.kts.patch` | Fork registration and branding |
+| `build-data/*.at` | Access transformers per patch set |
+| `docs/` | AntiFreecam internals, tuning, hooks, testing |
+
+Generated directories (`canvas-server`, `paper-api`, `havocfolia-server/build.gradle.kts`, …) are
+gitignored — they are produced by `applyAllPatches`.
+
+---
+
 ## Licence
 
-Paper, Folia and CanvasMC are **GPL-3.0**, so this fork and anything you distribute from it must
-be GPL-3.0 too. `scripts/setup.sh` fetches the full licence text into `LICENSE` — do that before
-you publish a build. Keep your patches and sources public.
+Paper, Folia and CanvasMC are **GPL-3.0**, so this fork is too. `scripts/setup.sh` fetches the full
+licence text; do that before distributing a build, and keep your patches and sources public.

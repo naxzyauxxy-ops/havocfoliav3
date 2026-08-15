@@ -1,14 +1,9 @@
-import java.util.*
+import java.util.Locale
 
 pluginManagement {
     repositories {
         gradlePluginPortal()
-        // Required — the weaver patcher plugin is not on the Gradle Plugin Portal.
-        maven {
-            name = "canvasmc"
-            url = uri("https://maven.canvasmc.io/public")
-        }
-        maven("https://repo.papermc.io/repository/maven-public/")
+        maven("https://maven.canvasmc.io/public")
     }
 }
 
@@ -18,8 +13,7 @@ plugins {
 
 enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")
 
-rootProject.name = "HavocFolia"
-
+rootProject.name = "havocfolia"
 for (name in listOf("havocfolia-api", "havocfolia-server")) {
     val projName = name.lowercase(Locale.ENGLISH)
     include(projName)
@@ -28,6 +22,12 @@ for (name in listOf("havocfolia-api", "havocfolia-server")) {
 
 gradle.lifecycle.beforeProject {
     val mcVersion = providers.gradleProperty("mcVersion").get().trim()
-    val buildNumber = providers.environmentVariable("BUILD_NUMBER").orNull?.trim()?.toInt()
-    version = if (buildNumber == null) "$mcVersion.local-SNAPSHOT" else "$mcVersion.build.$buildNumber"
+    val havocfoliaChannel = providers.gradleProperty("channel").get().trim()
+    val havocfoliaBuildNumber = providers.environmentVariable("BUILD_NUMBER").orNull?.trim()?.toInt()
+    val versionString = if (havocfoliaBuildNumber == null) {
+        "$mcVersion.local-SNAPSHOT"
+    } else {
+        "$mcVersion.build.$havocfoliaBuildNumber-${havocfoliaChannel.lowercase()}"
+    }
+    version = versionString
 }

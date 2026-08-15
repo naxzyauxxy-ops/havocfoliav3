@@ -1,0 +1,88 @@
+--- a/canvas-server/build.gradle.kts
++++ b/canvas-server/build.gradle.kts
+@@ -20,8 +_,8 @@
+ }
+ 
+ val mergeMinecraftATs by tasks.registering<MergeAccessTransforms> {
+-    firstFile.set(paperweight.activeFork.flatMap { it.buildDataDir.file("${it.name}.at") })
+-    secondFile.set(paperweight.activeFork.flatMap { it.buildDataDir.file("folia.at") })
++    firstFile.set(paperweight.forks.named("canvas").flatMap { it.buildDataDir.file("${it.name}.at") })
++    secondFile.set(paperweight.forks.named("canvas").flatMap { it.buildDataDir.file("folia.at") })
+ }
+ 
+ paperweight {
+@@ -39,10 +_,27 @@
+         }
+     }
+ 
+-    activeFork = canvas
++    val havocfolia = forks.register("havocfolia") {
++        forks = canvas
++        upstream.patchRepo("paperServer") {
++             upstreamRepo = canvas.patchedRepo("paperServer")
++             patchesDir = rootDirectory.dir("havocfolia-server/paper-patches")
++             outputDir = rootDirectory.dir("paper-server")
++         }
++        upstream.patchDir("canvasServer") {
++            upstreamPath = "canvas-server"
++            excludes = setOf("src/minecraft", "paper-patches", "minecraft-patches", "build.gradle.kts", "build.gradle.kts.patch")
++            patchesDir = rootDirectory.dir("havocfolia-server/canvas-patches")
++            outputDir = rootDirectory.dir("canvas-server")
++        }
++    }
++
++    activeFork = havocfolia
+ 
+     updatingMinecraft {
+         // oldPaperCommit = "d4fe85375af18bfa88f44d7c1e6a61904ae550cc"
++        // A commit hash from your repository
++        // to fetch from in order to bring in objects for 3-way apply.
+         // oldForkCommit = "58d6715718521ea774b786fa9ca1e6fc2db14702"
+     }
+ }
+@@ -110,10 +_,14 @@
+     main {
+         java { srcDir("../paper-server/src/main/java"); srcDir("../paper-server/src/generated/java") }
+         resources { srcDir("../paper-server/src/main/resources") }
++        java { srcDir("../canvas-server/src/main/java") }
++        resources { srcDir("../canvas-server/src/main/resources") }
+     }
+     test {
+         java { srcDir("../paper-server/src/test/java") }
+         resources { srcDir("../paper-server/src/test/resources") }
++        java { srcDir("../canvas-server/src/test/java") }
++        resources { srcDir("../canvas-server/src/test/resources") }
+     }
+ }
+ val log4jPlugins = sourceSets.create("log4jPlugins") {
+@@ -141,7 +_,7 @@
+ }
+ 
+ dependencies {
+-    implementation(projects.canvasApi)
++    implementation(projects.havocfoliaApi)
+     implementation("ca.spottedleaf:leafpile:1.0.0")
+     implementation("org.jline:jline-terminal-ffm:3.29.0") // use ffm on java 22+
+     implementation("org.jline:jline-terminal-jni:3.29.0") // fall back to jni on java 21
+@@ -215,15 +_,15 @@
+         )
+         attributes(
+             "Main-Class" to "org.bukkit.craftbukkit.Main",
+-            "Implementation-Title" to "Canvas",
++            "Implementation-Title" to "HavocFolia",
+             "Implementation-Version" to implementationVersion,
+             "Implementation-Vendor" to date,
+-            "Specification-Title" to "Canvas",
++            "Specification-Title" to "HavocFolia",
+             "Specification-Version" to project.version,
+-            "Specification-Vendor" to "Canvas Team",
+-            "Brand-Id" to "canvasmc:canvas",
+-            "Brand-Name" to "Canvas",
+-            "Brand-Vendor" to "Canvas Team",
++            "Specification-Vendor" to "HavocFolia Team",
++            "Brand-Id" to "havoc:havocfolia",
++            "Brand-Name" to "HavocFolia",
++            "Brand-Vendor" to "HavocFolia Team",
+             "Brand-Website" to "https://canvasmc.io",
+             "Build-Number" to (build ?: ""),
+             "Build-Time" to buildTime.toString(),

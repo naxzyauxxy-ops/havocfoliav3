@@ -1,93 +1,84 @@
-# Where this actually stands
+# Status
 
-Read this before the README.
+## What changed in this rebuild
 
-## What I can and cannot verify
+The previous four attempts failed because I hand-derived the fork's build wiring from reading
+plugin source. That was the wrong approach: **CanvasMC publishes an official fork template,
+[CraftCanvasMC/Baguette](https://github.com/CraftCanvasMC/Baguette)**, and this repo is now
+generated from it rather than from my inference.
 
-I built and iterated on this without being able to run the build. This sandbox cannot reach
-`repo.papermc.io`, `maven.canvasmc.io`, Mojang's servers or `services.gradle.org`, so
-`applyAllPatches` has never executed here. That is why you got four rounds of fixes instead of one
-working config, and it is worth being blunt about rather than shipping a fifth confident guess.
+Things the template supplied that I had wrong or missing entirely:
 
-**Verified by execution:**
+| Piece | Before | Now |
+| --- | --- | --- |
+| `forks.register("...") { forks = canvas }` + `activeFork` | **Missing entirely** — nothing declared this as a fork | From the template's server patch |
+| `patchRepo("paperServer")` / `patchDir("canvasServer")` | Missing | From the template |
+| `build-data/*.at` access transformers | Missing (7 files) | From the template |
+| Module-rename patches | I tried to generate these with `sed` at CI time | Real committed `.patch` files |
+| Gradle wrapper jar | Not committed; CI generated one | Committed, Gradle 9.6.1 |
+| Action versions | checkout@v4, setup-java@v4, setup-gradle@v4 | v6 / v5 / v6, matching upstream |
+| `canvasCommit` | Latest main HEAD | The template's pinned commit, which its patches are anchored to |
+| Branding | Manifest attributes only | `ServerBuildInfo` patches, so the server reports HavocFolia properly |
 
-| Thing | How |
+The plugin-resolution failure you hit was almost certainly downstream of this: the build was
+missing the fork declaration the whole time.
+
+## Verified by running it here
+
+| Thing | Result |
 | --- | --- |
-| AntiFreecam kernel | 24 assertions, compiled and run — including 8-thread concurrency and perf |
-| CPU pin strategies | 10 assertions, compiled and run |
-| Workflow YAML | Parsed; every `run:` block bash-syntax-checked |
-| Preflight probe | Run against the live Canvas repo — returned Gradle 9.6.1, Java 25, mc 26.2 |
-| `canvasRef` | Real commit, resolved from `git ls-remote` today |
+| AntiFreecam kernel | 24 assertions pass, including 8-thread concurrency and perf budget |
+| CPU pin strategies | 10 assertions pass |
+| `build.yml` and `upstream.yml` | Parse; every `run:` block bash-syntax-checked |
+| Template provenance | Downloaded from `CraftCanvasMC/Baguette@v3`, pushed 2026-08-13 |
+| Rename sweep | Zero residual `baguette` references |
 
-**Verified by reading upstream source, not by running:**
+## Not verified
 
-| Thing | Source |
-| --- | --- |
-| `upstreams.canvas { }` DSL, `ref`/`patchFile`/`patchDir` shapes | weaver `UpstreamConfig.kt`, `PaperweightPatcherExtension.kt` |
-| Task names `applyAllPatches`, `createPaperclipJar`, `rebuildAllServerPatches` | weaver `PaperclipTasks.kt`, `UpstreamConfigTasks.kt`, Canvas README |
-| Patch layout `minecraft-patches/sources/<pkg>/<Class>.java.patch` | Canvas's own repo tree |
-| Subproject build files are generated, not committed | Canvas `.gitignore` |
-| No `./gradlew` shell-out for nested builds | weaver `RunNestedBuild.kt` |
+I still cannot execute `applyAllPatches` — this sandbox cannot reach `repo.papermc.io`,
+`maven.canvasmc.io`, Mojang or `services.gradle.org`. What is different now is that the parts I
+could not test are upstream's own files rather than my guesses.
 
-**Not verified at all — the honest risk list:**
+**The five hook patches in `havocfolia-server/minecraft-patches/sources/` are still mine, and are
+still written against Paper/Folia 1.21.x method shapes.** Canvas is on Minecraft 26.2. Expect at
+least `ServerPlayer#tick` and the `chunkPacketBlockController` assignment to have moved.
 
-1. `patchDir("paperApi")` wiring for a fork-of-a-fork. Inferred by analogy with how Canvas patches
-   Paper's API. This is the single most likely thing to still be wrong.
-2. Whether `patchFile` tolerates a missing `.patch` on the first run (I believe it copies verbatim;
-   the bootstrap step assumes this).
-3. Whether the five source patches apply. They almost certainly do not — see below.
-
-## The one manual step I could not automate
-
-A paperweight fork's first build has a bootstrap that cannot be done blind. `applyAllPatches`
-generates `havocfolia-server/build.gradle.kts` from Canvas's, and that copy still refers to
-upstream's module names (`canvas-api`, `canvasServer`). Those do not exist in this project, so
-configuration fails on the next task.
-
-The workflow now handles this automatically with a `Bootstrap generated build files` step that
-renames the references, and uploads the generated files as an artifact. To make it permanent:
-
-```bash
-gradle applyAllPatches
-# edit havocfolia-server/build.gradle.kts if the sed did not catch everything
-gradle rebuildCanvasSingleFilePatches
-git add havocfolia-server/build.gradle.kts.patch havocfolia-api/build.gradle.kts.patch
-```
-
-Once those `.patch` files are committed the bootstrap step becomes a no-op.
-
-## What will fail next, and why that is fine
-
-The five hook patches in `havocfolia-server/minecraft-patches/sources/` are written against
-Paper/Folia 1.21.x method shapes. Canvas main is on Minecraft **26.2**. Expect at least
-`ServerPlayer#tick` and the `chunkPacketBlockController` assignment to have moved.
-
-This is normal fork maintenance, not a broken config. The workflow uploads a `patch-rejects`
-artifact on failure containing the `.rej` files, which name the exact hunk that failed. Fix by
-hand, then regenerate:
+That is normal fork maintenance, not a config bug. The workflow uploads a `patch-rejects` artifact
+naming the exact failing hunk. Fix by hand, then regenerate:
 
 ```bash
 # edit havocfolia-server/src/minecraft/net/minecraft/...
-gradle rebuildAllServerPatches
+./gradlew rebuildAllServerPatches
 ```
 
-`docs/HOOKS.md` has the anchor string and the exact insertion for each of the five.
+`docs/HOOKS.md` has the anchor string and exact insertion for each of the five. If you want a
+build to succeed before touching them, delete all five — you get a clean Canvas rebrand, then add
+them back one at a time.
 
 ## Task reference
 
 | Goal | Command |
 | --- | --- |
-| Build the source tree | `gradle applyAllPatches` |
-| Build the jar | `gradle :havocfolia-server:createPaperclipJar` |
-| Regenerate NMS patches | `gradle rebuildAllServerPatches` |
-| Regenerate build-file patches | `gradle rebuildCanvasSingleFilePatches` |
-| Regenerate API patches | `gradle rebuildPaperApiPatches` |
+| Build the source tree | `./gradlew applyAllPatches` |
+| Build the jar | `./gradlew createPaperclipJar` |
+| Compile check only | `./gradlew compileJava` |
+| Regenerate NMS patches | `./gradlew rebuildAllServerPatches` |
+| Regenerate build-file patches | `./gradlew rebuildCanvasSingleFilePatches` |
+| Regenerate API patches | `./gradlew rebuildPaperApiPatches` |
+| Fuzzy re-apply after an upstream bump | `./gradlew applyCanvasSingleFilePatchesFuzzy` |
 | Run the kernel tests | see `docs/TESTING.md` |
 
-## If you want a 1.21.x server instead
+## Bumping upstream
 
-Canvas keeps version branches — `ver/1.21.11` exists and targets Java 21 with different task
-names. Most plugins lag the newest Minecraft, so this may be what you actually want. Set
-`canvasBranch = ver/1.21.11` in `gradle.properties`, pin a `canvasRef` from that branch, and the
-preflight job will auto-detect the right Gradle and Java versions for it. Check that branch's
-README for its jar task name before changing the build step.
+Change `canvasCommit`, then:
+
+```bash
+./gradlew applyAllPatches || ./gradlew applyCanvasSingleFilePatchesFuzzy
+./gradlew rebuildCanvasSingleFilePatches
+./gradlew applyAllPatches
+./gradlew rebuildPaperApiPatches
+./gradlew rebuildAllServerPatches
+./gradlew compileJava
+```
+
+That is the template's own sequence, and `.github/workflows/upstream.yml` automates it.

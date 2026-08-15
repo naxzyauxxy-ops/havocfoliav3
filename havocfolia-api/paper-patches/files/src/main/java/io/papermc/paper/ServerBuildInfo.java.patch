@@ -1,0 +1,15 @@
+--- a/src/main/java/io/papermc/paper/ServerBuildInfo.java
++++ b/src/main/java/io/papermc/paper/ServerBuildInfo.java
+@@ -26,6 +_,12 @@
+      */
+     Key BRAND_CANVAS_ID = Key.key("canvasmc", "canvas");
+     // Canvas end - Rebrand
++    // HavocFolia start - Rebrand
++    /**
++     * The brand id for HavocFolia.
++     */
++    Key BRAND_HAVOCFOLIA_ID = Key.key("canvasmc", "havocfolia");
++    // HavocFolia end - Rebrand
+ 
+     /**
+      * Gets the {@code ServerBuildInfo}.
