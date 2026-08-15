@@ -38,6 +38,12 @@ jobs:
       # Java 25 and Gradle 9.6.1 are what Canvas and the Baguette template use.
       # Both come from the committed wrapper and this JDK — nothing is provisioned
       # ad hoc, so there is no version to drift.
+      - name: Make wrapper executable
+        # The exec bit is easily lost extracting a zip on Windows/macOS, and git
+        # then records mode 100644 — so ./gradlew fails with "Permission denied".
+        # Fix it permanently with:  git update-index --chmod=+x gradlew
+        run: chmod +x ./gradlew scripts/*.sh || true
+
       - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
